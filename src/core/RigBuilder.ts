@@ -6,9 +6,12 @@ import type {
   MotorJoint,
   SensorConfig,
   ChassisData,
-  RiggedRobotData
+  RiggedRobotData,
+  RigOptions,
+  LDrawLoadProgress
 } from '@/types';
 import { partCategorizer } from './PartCategorizer';
+import { ldrawGeometryLoader } from './LDrawGeometryLoader';
 
 /**
  * Automatically rigs a LEGO robot model for physics simulation
@@ -18,39 +21,77 @@ export class RigBuilder {
 
   /**
    * Main rigging function - converts a flat list of parts into a rigged robot
+   * @param parts - List of parsed LEGO parts
+   * @param modelName - Name for the robot model
+   * @param options - Optional rigging options (render mode, progress callback)
    */
   async rigRobot(
     parts: PartInstance[],
-    modelName: string
+    modelName: string,
+    options?: RigOptions
   ): Promise<RiggedRobotData> {
+
+    const renderMode = options?.renderMode ?? 'detailed';
+    console.log('🤖 Starting robot rigging for:', modelName);
+    console.log('📦 Total parts to process:', parts.length);
+    console.log('🎨 Render mode:', renderMode);
+
+    if (parts.length === 0) {
+      throw new Error('Cannot rig robot: No parts provided');
+    }
 
     // Step 1: Categorize parts
     const categorized = partCategorizer.categorizeParts(parts);
 
-    console.log('Categorized parts:', {
+    console.log('🏷️ Categorized parts:', {
       motors: categorized.motors.length,
       wheels: categorized.wheels.length,
       sensors: categorized.sensors.length,
       structural: categorized.structural.length
     });
 
+    // Validation: Warn if no motors found
+    if (categorized.motors.length === 0) {
+      console.warn('⚠️ No motors detected! Robot will not be able to move.');
+      console.log('💡 Tip: Make sure your robot includes SPIKE or EV3 motors.');
+    }
+
+    // Validation: Warn if no wheels found
+    if (categorized.wheels.length === 0) {
+      console.warn('⚠️ No wheels detected! Robot may not move correctly.');
+      console.log('💡 Tip: Add wheels to your robot design.');
+    }
+
     // Step 2: Detect wheel axles
     const wheelAxles = this.detectWheelAxles(categorized.wheels);
+    console.log('🔧 Detected wheel axles:', wheelAxles.length);
 
     // Step 3: Associate motors with axles
     const motorJoints = this.createMotorJoints(categorized.motors, wheelAxles);
+    console.log('⚙️ Created motor joints:', motorJoints.length);
 
     // Step 4: Configure sensors
     const sensorConfigs = this.configureSensors(categorized.sensors);
+    console.log('👁️ Configured sensors:', sensorConfigs.length);
 
     // Step 5: Build chassis collision shape
     const chassis = this.buildChassisData(categorized.structural, parts);
+    console.log('🏗️ Built chassis:', {
+      mass: chassis.mass.toFixed(3) + ' kg',
+      centerOfMass: chassis.centerOfMass.toArray().map(v => v.toFixed(3))
+    });
 
-    // Step 6: Create visual mesh
-    const visualMesh = this.createVisualMesh(parts);
+    // Step 6: Create visual mesh (based on render mode)
+    let visualMesh: THREE.Group;
+    if (renderMode === 'detailed') {
+      visualMesh = await this.createDetailedVisualMesh(parts, options?.onProgress);
+    } else {
+      visualMesh = this.createSimpleVisualMesh(parts);
+    }
+    console.log('🎨 Created visual mesh with', visualMesh.children.length, 'children');
 
-    return {
-      id: crypto.randomUUID(),
+    const riggedRobot = {
+      id: ( crypto.randomUUID?.() ?? Math.random().toString(36).substring(2) + Date.now().toString(36) ),
       name: modelName,
       chassis,
       motorJoints,
@@ -58,6 +99,17 @@ export class RigBuilder {
       visualMesh,
       partCount: parts.length
     };
+
+    console.log('✅ Robot rigging complete!', {
+      id: riggedRobot.id,
+      name: riggedRobot.name,
+      motors: motorJoints.length,
+      sensors: sensorConfigs.length,
+      mass: chassis.mass.toFixed(3) + ' kg',
+      renderMode
+    });
+
+    return riggedRobot;
   }
 
   /**
@@ -235,20 +287,67 @@ export class RigBuilder {
     // Calculate total mass
     const mass = partCategorizer.calculateTotalMass(allParts);
 
-    // Calculate center of mass
-    const centerOfMass = partCategorizer.calculateCenterOfMass(structural);
+    // Calculate center of mass from ALL parts (not just structural)
+    const centerOfMass = partCategorizer.calculateCenterOfMass(allParts);
 
     // Create simplified collision shape (convex hull)
     const vertices = this.createConvexHullVertices(structural);
+
+    // Compute bounding box dimensions for collision
+    const boundingBox = this.computeBoundingBox(allParts);
 
     return {
       mass,
       centerOfMass,
       collisionShape: {
         type: 'ConvexPolyhedron',
-        vertices
+        vertices,
+        dimensions: boundingBox.size
       }
     };
+  }
+
+  /**
+   * Compute bounding box from all parts
+   */
+  private computeBoundingBox(parts: PartInstance[]): { center: THREE.Vector3; size: THREE.Vector3 } {
+    if (parts.length === 0) {
+      return {
+        center: new THREE.Vector3(0, 0, 0),
+        size: new THREE.Vector3(0.15, 0.08, 0.15)
+      };
+    }
+
+    const box = new THREE.Box3();
+
+    parts.forEach(part => {
+      // Estimate part size based on category
+      let partSize = new THREE.Vector3(0.008, 0.0096, 0.008); // Default brick size
+
+      if (part.category === 'motor') {
+        partSize.set(0.032, 0.032, 0.048);
+      } else if (part.category === 'wheel') {
+        partSize.set(0.056, 0.012, 0.056); // Wheel diameter x width
+      } else if (part.category === 'sensor') {
+        partSize.set(0.024, 0.024, 0.020);
+      }
+
+      // Expand box by part position + half size
+      const min = part.position.clone().sub(partSize.clone().multiplyScalar(0.5));
+      const max = part.position.clone().add(partSize.clone().multiplyScalar(0.5));
+      box.expandByPoint(min);
+      box.expandByPoint(max);
+    });
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+
+    // Ensure minimum size
+    size.x = Math.max(size.x, 0.05);
+    size.y = Math.max(size.y, 0.04);
+    size.z = Math.max(size.z, 0.05);
+
+    return { center, size };
   }
 
   /**
@@ -287,11 +386,11 @@ export class RigBuilder {
   }
 
   /**
-   * Create visual mesh representation of the robot
+   * Create simple visual mesh (placeholder geometry - fast loading)
    */
-  private createVisualMesh(parts: PartInstance[]): THREE.Group {
+  private createSimpleVisualMesh(parts: PartInstance[]): THREE.Group {
     const group = new THREE.Group();
-    group.name = 'RobotVisualMesh';
+    group.name = 'RobotVisualMesh_Simple';
 
     // Group parts by ID for instancing
     const partGroups = new Map<string, PartInstance[]>();
@@ -304,7 +403,7 @@ export class RigBuilder {
       partGroups.get(key)!.push(part);
     });
 
-    // Create meshes (simplified for now - would load actual LDraw geometry)
+    // Create meshes with simplified placeholder geometry
     partGroups.forEach((instances, key) => {
       instances.forEach(part => {
         const geometry = this.createPartGeometry(part);
@@ -329,14 +428,136 @@ export class RigBuilder {
   }
 
   /**
+   * Create detailed visual mesh using LDrawLoader (real LEGO geometry)
+   * This loads actual part shapes from the LDraw parts library
+   */
+  private async createDetailedVisualMesh(
+    parts: PartInstance[],
+    onProgress?: (progress: LDrawLoadProgress) => void
+  ): Promise<THREE.Group> {
+    const group = new THREE.Group();
+    group.name = 'RobotVisualMesh_Detailed';
+
+    console.log('🎨 Creating detailed visual mesh with LDrawLoader...');
+
+    // Initialize the loader
+    await ldrawGeometryLoader.initialize();
+
+    const totalParts = parts.length;
+    let loadedParts = 0;
+    let failedParts = 0;
+
+    // Load each part with real geometry
+    for (const part of parts) {
+      try {
+        onProgress?.({
+          loaded: loadedParts,
+          total: totalParts,
+          message: `Loading part ${part.partId}...`,
+          currentPart: part.partId
+        });
+
+        // Try to load the real LDraw geometry for this part
+        const partGeometry = await ldrawGeometryLoader.loadPart(part.partId);
+
+        if (partGeometry) {
+          // Clone and position the loaded geometry
+          const partMesh = partGeometry.clone();
+          partMesh.position.copy(part.position);
+          partMesh.quaternion.copy(part.rotation);
+
+          // Apply the part's color to all meshes in the group
+          partMesh.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              // Preserve existing material colors from LDraw where possible
+              // but override solid color parts with the specified color
+              if (child.material instanceof THREE.MeshStandardMaterial) {
+                // Check if this is a placeholder color (color 16 = main color)
+                const mat = child.material as THREE.MeshStandardMaterial;
+                if (mat.userData?.ldrawColor === 16) {
+                  mat.color.setHex(this.colorCodeToHex(part.color));
+                }
+              }
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+
+          partMesh.userData.partId = part.id;
+          partMesh.userData.ldrawPartId = part.partId;
+          group.add(partMesh);
+          loadedParts++;
+        } else {
+          // Fallback to simple geometry if part not found
+          console.warn(`⚠️ Part ${part.partId} not found in LDraw library, using placeholder`);
+          const fallbackMesh = this.createFallbackMesh(part);
+          group.add(fallbackMesh);
+          failedParts++;
+          loadedParts++;
+        }
+      } catch (error) {
+        console.error(`❌ Error loading part ${part.partId}:`, error);
+        // Use fallback geometry
+        const fallbackMesh = this.createFallbackMesh(part);
+        group.add(fallbackMesh);
+        failedParts++;
+        loadedParts++;
+      }
+    }
+
+    onProgress?.({
+      loaded: totalParts,
+      total: totalParts,
+      message: `Completed! ${totalParts - failedParts}/${totalParts} parts loaded`
+    });
+
+    console.log(`✅ Detailed mesh created: ${totalParts - failedParts}/${totalParts} parts loaded successfully`);
+    if (failedParts > 0) {
+      console.warn(`⚠️ ${failedParts} parts used fallback geometry`);
+    }
+
+    return group;
+  }
+
+  /**
+   * Create fallback mesh when LDraw geometry is not available
+   */
+  private createFallbackMesh(part: PartInstance): THREE.Mesh {
+    const geometry = this.createPartGeometry(part);
+    const material = new THREE.MeshStandardMaterial({
+      color: this.colorCodeToHex(part.color),
+      roughness: 0.6,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.8 // Slightly transparent to indicate it's a placeholder
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(part.position);
+    mesh.quaternion.copy(part.rotation);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.partId = part.id;
+    mesh.userData.isFallback = true;
+
+    return mesh;
+  }
+
+  /**
    * Create geometry for a part based on its category
    */
   private createPartGeometry(part: PartInstance): THREE.BufferGeometry {
     switch (part.category) {
-      case 'motor':
-        return new THREE.BoxGeometry(0.032, 0.032, 0.048);
-      case 'wheel':
-        return new THREE.CylinderGeometry(0.028, 0.028, 0.012, 16);
+      case 'motor': {
+        // Motor body with visible hub detail
+        const motorGeo = new THREE.BoxGeometry(0.032, 0.032, 0.048);
+        return motorGeo;
+      }
+      case 'wheel': {
+        const wheelGeo = new THREE.CylinderGeometry(0.028, 0.028, 0.012, 16);
+        wheelGeo.rotateZ(Math.PI / 2); // Align with X-axis (axle direction)
+        return wheelGeo;
+      }
       case 'sensor':
         return new THREE.BoxGeometry(0.024, 0.024, 0.020);
       default:

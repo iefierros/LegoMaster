@@ -6,6 +6,21 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============ TABLES ============
 
+-- Projects Table (user code projects)
+CREATE TABLE projects (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  code TEXT NOT NULL DEFAULT '',
+  language VARCHAR(20) NOT NULL DEFAULT 'python' CHECK (language IN ('python', 'blockly')),
+  robot_model_id UUID,
+  thumbnail_url TEXT,
+  is_public BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Robot Models Table
 CREATE TABLE robot_models (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -52,6 +67,10 @@ CREATE TABLE code_snapshots (
 
 -- ============ INDEXES ============
 
+CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE INDEX idx_projects_updated_at ON projects(updated_at DESC);
+CREATE INDEX idx_projects_is_public ON projects(is_public) WHERE is_public = true;
+
 CREATE INDEX idx_robot_models_user_id ON robot_models(user_id);
 CREATE INDEX idx_robot_models_created_at ON robot_models(created_at DESC);
 
@@ -63,10 +82,28 @@ CREATE INDEX idx_code_snapshots_session_id ON code_snapshots(session_id);
 -- ============ ROW LEVEL SECURITY ============
 
 -- Enable RLS
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE robot_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE code_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tracks ENABLE ROW LEVEL SECURITY;
+
+-- Projects Policies
+CREATE POLICY "Users can view own projects or public"
+  ON projects FOR SELECT
+  USING (auth.uid() = user_id OR is_public = true);
+
+CREATE POLICY "Users can insert their own projects"
+  ON projects FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own projects"
+  ON projects FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own projects"
+  ON projects FOR DELETE
+  USING (auth.uid() = user_id);
 
 -- Robot Models Policies
 CREATE POLICY "Users can view their own robot models"
@@ -138,6 +175,12 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Trigger for projects updated_at
+CREATE TRIGGER update_projects_updated_at
+  BEFORE UPDATE ON projects
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
 
 -- Trigger for sessions updated_at
 CREATE TRIGGER update_sessions_updated_at

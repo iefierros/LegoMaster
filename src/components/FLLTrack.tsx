@@ -1,6 +1,5 @@
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { usePlane, useBox } from '@react-three/cannon';
-import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 
 /**
@@ -14,6 +13,8 @@ export function FLLTrack() {
 
   // Physics ground plane
   const [ref] = usePlane<THREE.Mesh>(() => ({
+    type: 'Static',
+    mass: 0,
     rotation: [-Math.PI / 2, 0, 0],
     position: [0, 0, 0],
     material: {
@@ -23,9 +24,13 @@ export function FLLTrack() {
     userData: { isTrack: true }
   }));
 
-  // For now, we'll use a placeholder texture
-  // In production, this would load the actual FLL mat texture
-  const matMesh = useRef<THREE.Mesh>(null!);
+  // Create mat texture using useMemo to avoid recreating on every render
+  const matTexture = useMemo(() => {
+    const canvas = createMatTexture(MAT_WIDTH * 200, MAT_HEIGHT * 200);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }, [MAT_WIDTH, MAT_HEIGHT]);
 
   return (
     <group>
@@ -33,30 +38,10 @@ export function FLLTrack() {
       <mesh ref={ref} receiveShadow userData={{ isTrack: true }}>
         <planeGeometry args={[MAT_WIDTH, MAT_HEIGHT]} />
         <meshStandardMaterial
-          color="#1a1a1a"
-          roughness={0.8}
-          metalness={0.1}
-        />
-      </mesh>
-
-      {/* Mat Visual (with texture) */}
-      <mesh
-        ref={matMesh}
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, 0.001, 0]}
-        receiveShadow
-      >
-        <planeGeometry args={[MAT_WIDTH, MAT_HEIGHT]} />
-        <meshStandardMaterial
-          color="#ffffff"
+          map={matTexture}
           roughness={0.9}
-        >
-          {/* Add grid lines for reference */}
-          <canvasTexture
-            attach="map"
-            image={createMatTexture(MAT_WIDTH * 200, MAT_HEIGHT * 200)}
-          />
-        </meshStandardMaterial>
+          metalness={0.05}
+        />
       </mesh>
 
       {/* Border Walls */}
@@ -163,11 +148,16 @@ function Wall({ position, args }: { position: [number, number, number]; args: [n
     material: {
       friction: 0.3,
       restitution: 0.5
+    },
+    userData: {
+      isTrack: true,
+      isWall: true,
+      type: 'wall'
     }
   }));
 
   return (
-    <mesh ref={ref} castShadow>
+    <mesh ref={ref} castShadow userData={{ isTrack: true, isWall: true, type: 'wall' }}>
       <boxGeometry args={args} />
       <meshStandardMaterial color="#2C2C2C" />
     </mesh>
@@ -194,11 +184,22 @@ function MissionButton({ position }: { position: [number, number, number] }) {
     type: 'Static',
     position,
     args: [0.08, 0.05, 0.08],
-    userData: { isMissionElement: true, missionId: 'M01', points: 20 }
+    userData: {
+      isMissionElement: true,
+      elementId: 'M01',
+      elementType: 'button',
+      missionId: 'M01',
+      points: 20
+    },
+    onCollide: (e: { body: any }) => {
+      if (e.body?.userData?.isRobot) {
+        console.log('🎯 Mission M01 triggered!');
+      }
+    }
   }));
 
   return (
-    <mesh ref={ref} castShadow>
+    <mesh ref={ref} castShadow userData={{ isMissionElement: true, elementId: 'M01', type: 'button' }}>
       <boxGeometry args={[0.08, 0.05, 0.08]} />
       <meshStandardMaterial color="#FFCB05" metalness={0.3} roughness={0.4} />
     </mesh>
@@ -210,11 +211,22 @@ function MissionCargo({ position }: { position: [number, number, number] }) {
     mass: 0.05, // 50 grams
     position,
     args: [0.04, 0.04, 0.04],
-    userData: { isMissionElement: true, missionId: 'M02', points: 15 }
+    userData: {
+      isMissionElement: true,
+      elementId: 'M02',
+      elementType: 'cargo',
+      missionId: 'M02',
+      points: 15
+    },
+    onCollide: (e: { body: any }) => {
+      if (e.body?.userData?.isRobot) {
+        console.log('🎯 Mission M02 cargo touched!');
+      }
+    }
   }));
 
   return (
-    <mesh ref={ref} castShadow>
+    <mesh ref={ref} castShadow userData={{ isMissionElement: true, elementId: 'M02', type: 'cargo' }}>
       <boxGeometry args={[0.04, 0.04, 0.04]} />
       <meshStandardMaterial color="#D01012" />
     </mesh>

@@ -1,4 +1,4 @@
-import { Suspense, useState, useRef } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Physics } from '@react-three/cannon';
 import { OrbitControls, Environment, Grid, PerspectiveCamera } from '@react-three/drei';
@@ -11,14 +11,33 @@ interface SimulationSceneProps {
   riggedRobot: RiggedRobotData | null;
   onRobotReady?: (robot: RobotInstance) => void;
   onSensorUpdate?: (readings: SensorReading[]) => void;
+  onMissionTriggered?: (missionId: string, points: number) => void;
 }
 
 export function SimulationScene({
   riggedRobot,
   onRobotReady,
-  onSensorUpdate
+  onSensorUpdate,
+  onMissionTriggered
 }: SimulationSceneProps) {
   const [cameraMode, setCameraMode] = useState<'orbit' | 'follow' | 'top'>('orbit');
+
+  // Handle robot collision events
+  const handleRobotCollision = useCallback((event: { body: any; target: any }) => {
+    const otherBody = event.body;
+
+    // Check for mission element collision
+    if (otherBody?.userData?.isMissionElement) {
+      const { elementId, points, missionId } = otherBody.userData;
+      console.log(`🎯 Robot collided with mission element: ${elementId || missionId}`);
+      onMissionTriggered?.(missionId || elementId, points || 0);
+    }
+
+    // Check for wall collision
+    if (otherBody?.userData?.isWall) {
+      console.log('🧱 Robot collided with wall');
+    }
+  }, [onMissionTriggered]);
 
   return (
     <div className="w-full h-full">
@@ -74,9 +93,10 @@ export function SimulationScene({
             <Suspense fallback={null}>
               <SimulatedRobot
                 riggedData={riggedRobot}
-                initialPosition={[0, 0.1, -0.5]}
+                initialPosition={[0, 0.08, -0.3]}
                 onRobotReady={onRobotReady}
                 onSensorUpdate={onSensorUpdate}
+                onCollision={handleRobotCollision}
               />
             </Suspense>
           )}

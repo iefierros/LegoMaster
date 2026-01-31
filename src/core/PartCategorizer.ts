@@ -78,12 +78,25 @@ export class PartCategorizer {
   private isMotorPart(partId: string): boolean {
     const motorPatterns = [
       /motor/i,
-      /^99499$/,  // EV3 Large Motor
-      /^95658$/,  // EV3 Medium Motor
-      /^54696$/,  // SPIKE Large Motor
-      /^54675$/,  // SPIKE Medium Motor
-      /^88008$/,  // Power Functions Motor
-      /^58120$/,  // Powered Up Motor
+      /^99499/,   // EV3 Large Motor (may have suffix)
+      /^95658/,   // EV3 Medium Motor
+      /^54696/,   // SPIKE Large Motor
+      /^54675/,   // SPIKE Medium Motor
+      /^88008/,   // Power Functions Motor
+      /^58120/,   // Powered Up Motor
+      /^67323/,   // SPIKE Prime Large Angular Motor
+      /^67321/,   // SPIKE Prime Medium Angular Motor
+      /^28684/,   // Technic Motor
+      /^53787/,   // Technic Motor
+      /^6290182/, // SPIKE motor alternate ID
+      /^6299646/, // SPIKE motor alternate ID
+      /^6299645/, // SPIKE motor alternate ID
+      /^6310603/, // SPIKE motor alternate ID
+      /^6313594/, // SPIKE motor alternate ID
+      /bb493/i,   // Motor housing parts
+      /bb494/i,
+      /bb339/i,   // Motor housing
+      /^46375/,   // Technic servo motor
     ];
 
     return motorPatterns.some(pattern => pattern.test(partId));
@@ -96,13 +109,38 @@ export class PartCategorizer {
     const wheelPatterns = [
       /tire/i,
       /wheel/i,
-      /^56908$/,  // Common wheel/tire combo
-      /^44309$/,
-      /^87697$/,
-      /^61480$/,
-      /^6014$/,
-      /^44772$/,
-      /^56145$/,
+      /tyre/i,
+      /^56908/,   // Common wheel/tire combo
+      /^44309/,
+      /^87697/,
+      /^61480/,
+      /^6014/,
+      /^44772/,
+      /^56145/,
+      /^32019/,   // Technic gear wheel
+      /^55982/,   // Wheel rim
+      /^56902/,   // Wheel rim
+      /^49295/,   // SPIKE Prime large wheel
+      /^11957/,   // Technic wheel
+      /^3482/,    // Classic wheel
+      /^6580/,    // Wheel hub
+      /^44293/,   // Wheel rim small
+      /^30027/,   // Wheel rim
+      /^18976/,   // Wheel SPIKE
+      /^42485/,   // Wheel small
+      /^72206/,   // Wheel technic
+      /^6290178/, // SPIKE wheel element ID
+      /^6311437/, // SPIKE wheel element ID
+      /^39367/,   // SPIKE Prime small wheel (57x14)
+      /^39368/,   // SPIKE Prime wheel variant
+      /^39369/,   // SPIKE Prime wheel variant
+      /^39370/,   // SPIKE Prime castor/ball joint
+      /^49283/,   // SPIKE Prime wire clip (sometimes part of wheel assembly)
+      /^45601/,   // SPIKE Prime hub
+      /^49293/,   // Technic wheel variant
+      /^49294/,   // Technic wheel variant
+      /^68327/,   // SPIKE wheel
+      /^68326/,   // SPIKE wheel
     ];
 
     return wheelPatterns.some(pattern => pattern.test(partId));
@@ -115,11 +153,18 @@ export class PartCategorizer {
     const sensorPatterns = [
       /sensor/i,
       /ultrasonic/i,
-      /^37308$/,  // SPIKE Color Sensor
-      /^37316$/,  // SPIKE Ultrasonic
-      /^95650$/,  // EV3 Color Sensor
-      /^95652$/,  // EV3 Ultrasonic
-      /^45605$/,  // EV3 Gyro
+      /^37308/,   // SPIKE Color Sensor
+      /^37316/,   // SPIKE Ultrasonic
+      /^95650/,   // EV3 Color Sensor
+      /^95652/,   // EV3 Ultrasonic
+      /^45605/,   // EV3 Gyro
+      /^95648/,   // EV3 Touch Sensor
+      /^6302968/, // SPIKE sensor alternate ID
+      /^6308537/, // SPIKE sensor alternate ID
+      /^6302888/, // SPIKE color sensor
+      /^6302889/, // SPIKE ultrasonic sensor
+      /bb667/i,   // Sensor housing
+      /bb668/i,   // Sensor housing
     ];
 
     return sensorPatterns.some(pattern => pattern.test(partId));
