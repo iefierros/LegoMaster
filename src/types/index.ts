@@ -188,6 +188,55 @@ export interface PythonCommand {
   timestamp: number;
 }
 
+// ============ AUTH TYPES ============
+
+export interface User {
+  id: string;
+  email: string;
+  displayName?: string;
+  avatarUrl?: string;
+  createdAt: string;
+}
+
+export interface AuthState {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+}
+
+// ============ PROJECT TYPES ============
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  code: string;
+  language: 'python' | 'blockly';
+  robot_model_id?: string;
+  thumbnail_url?: string;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectCreate {
+  name: string;
+  description?: string;
+  code: string;
+  language: 'python' | 'blockly';
+  robot_model_id?: string;
+  is_public?: boolean;
+}
+
+export interface ProjectUpdate {
+  name?: string;
+  description?: string;
+  code?: string;
+  robot_model_id?: string;
+  is_public?: boolean;
+}
+
 // ============ DATABASE TYPES ============
 
 export interface DBSession {
@@ -266,6 +315,28 @@ export interface SensorSimulator {
   port: string;
   update(scene: THREE.Scene, robotBody: CANNON.Body): SensorReading;
   read(): number | string | any;
+}
+
+// ============ RENDER MODE TYPES ============
+
+export type RenderMode = 'simple' | 'detailed';
+
+export interface RenderOptions {
+  mode: RenderMode;
+  showWireframe?: boolean;
+  showCollisionShapes?: boolean;
+}
+
+export interface LDrawLoadProgress {
+  loaded: number;
+  total: number;
+  message: string;
+  currentPart?: string;
+}
+
+export interface RigOptions {
+  renderMode: RenderMode;
+  onProgress?: (progress: LDrawLoadProgress) => void;
 }
 
 // ============ PART LIBRARY TYPES ============

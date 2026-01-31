@@ -1,10 +1,11 @@
 import { Toaster } from 'react-hot-toast';
 import { MainInterface } from './components/MainInterface';
+import { AuthProvider } from './contexts/AuthContext';
 import './App.css';
 
 function App() {
   return (
-    <>
+    <AuthProvider>
       <MainInterface />
       <Toaster
         position="bottom-right"
@@ -21,7 +22,7 @@ function App() {
           },
         }}
       />
-    </>
+    </AuthProvider>
   );
 }
 

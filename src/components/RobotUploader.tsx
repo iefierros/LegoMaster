@@ -1,18 +1,21 @@
 import { useState, useRef } from 'react';
-import { Upload, X, Loader2, FileUp } from 'lucide-react';
+import { Upload, X, Loader2, FileUp, Sparkles } from 'lucide-react';
 import { ldrawParser } from '@/parsers/LDrawParser';
 import { rigBuilder } from '@/core/RigBuilder';
-import type { RiggedRobotData } from '@/types';
+import type { RiggedRobotData, RenderMode, LDrawLoadProgress } from '@/types';
 import toast from 'react-hot-toast';
 
 interface RobotUploaderProps {
   onRobotUploaded: (robot: RiggedRobotData) => void;
   onClose: () => void;
+  renderMode?: RenderMode;
+  onProgress?: (progress: LDrawLoadProgress) => void;
 }
 
-export function RobotUploader({ onRobotUploaded, onClose }: RobotUploaderProps) {
+export function RobotUploader({ onRobotUploaded, onClose, renderMode = 'detailed', onProgress }: RobotUploaderProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<string>('');
+  const [detailedProgress, setDetailedProgress] = useState<LDrawLoadProgress | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,15 +49,31 @@ export function RobotUploader({ onRobotUploaded, onClose }: RobotUploaderProps) 
       setProgress('Detecting motors and wheels...');
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      setProgress('Creating physics configuration...');
+      setProgress(renderMode === 'detailed' ? 'Loading detailed LEGO geometry...' : 'Creating physics configuration...');
+
+      // Progress callback for detailed loading
+      const handleDetailedProgress = (p: LDrawLoadProgress) => {
+        setDetailedProgress(p);
+        onProgress?.(p);
+      };
+
       const riggedRobot = await rigBuilder.rigRobot(
         parsedModel.parts,
-        parsedModel.metadata.name
+        parsedModel.metadata.name,
+        {
+          renderMode,
+          onProgress: renderMode === 'detailed' ? handleDetailedProgress : undefined
+        }
       );
 
       console.log('Rigged robot:', riggedRobot);
 
-      // Step 3: Complete
+      // Step 3: Physics hull
+      setProgress('Generating physics hull...');
+      setDetailedProgress(null);
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Step 4: Complete
       setProgress('Robot ready!');
       await new Promise(resolve => setTimeout(resolve, 300));
 
@@ -142,9 +161,25 @@ export function RobotUploader({ onRobotUploaded, onClose }: RobotUploaderProps) 
               <h3 className="text-lg font-semibold mb-2">Processing Robot...</h3>
               <p className="text-gray-400">{progress}</p>
 
+              {detailedProgress && (
+                <p className="text-sm text-gray-500 mt-1">
+                  {detailedProgress.currentPart
+                    ? `Part: ${detailedProgress.currentPart}`
+                    : detailedProgress.message}
+                  {' '}({detailedProgress.loaded}/{detailedProgress.total})
+                </p>
+              )}
+
               <div className="mt-6 max-w-md mx-auto">
                 <div className="bg-gray-700 rounded-full h-2 overflow-hidden">
-                  <div className="bg-lego-yellow h-full animate-pulse" style={{ width: '60%' }}></div>
+                  <div
+                    className="bg-lego-yellow h-full transition-all duration-300"
+                    style={{
+                      width: detailedProgress
+                        ? `${Math.round((detailedProgress.loaded / Math.max(detailedProgress.total, 1)) * 100)}%`
+                        : '60%'
+                    }}
+                  />
                 </div>
               </div>
             </div>

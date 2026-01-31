@@ -1,0 +1,28 @@
+0 Car Steering Wheel 2D
+0 Name: 30663.dat
+0 Author: Guy Vivan [guyvivan]
+0 !LDRAW_ORG Part UPDATE 2017-01
+0 !LICENSE Redistributable under CCAL version 2.0 : see CAreadme.txt
+0 BFC CERTIFY CCW
+0 !HISTORY 2011-07-25 [PTadmin] Official Update 2011-01
+0 !HISTORY 2017-02-08 [Philo] Used stud4od primitive, minor corrections.
+0 !HISTORY 2017-12-30 [PTadmin] Official Update 2017-01
+0 !HISTORY 2019-05-14 [BLStudio] Converted partial mesh into a subpart 2019-05
+0 BFC INVERTNEXT
+1 16 0 -5 0 17 0 0 0 17 0 0 0 17 t04i1765.dat
+1 16 0 -5 0 17 0 0 0 17 0 0 0 17 t04o1765.dat
+1 16 0 -5 0 0 0 -17 0 17 0 17 0 0 t04i1765.dat
+1 16 0 -5 0 0 0 -17 0 17 0 17 0 0 t04o1765.dat
+1 16 0 -5 0 -17 0 0 0 17 0 0 0 -17 t04i1765.dat
+1 16 0 -5 0 -17 0 0 0 17 0 0 0 -17 t04o1765.dat
+1 16 0 -5 0 0 0 17 0 17 0 -17 0 0 t04i1765.dat
+1 16 0 -5 0 0 0 17 0 17 0 -17 0 0 t04o1765.dat
+1 16 0 -5 0 17 0 0 0 -17 0.000001 0 -0.000001 -17 t04i1765.dat
+1 16 0 -5 0 17 0 0 0 -17 0 0 0 -17 t04o1765.dat
+1 16 0 -5 0 -0.000001 -0.000001 -17 -0 -17 0.000001 -17 0 0.000001 t04i1765.dat
+1 16 0 -5 0 0 0 -17 0 -17 0 -17 0 0 t04o1765.dat
+1 16 0 -5 0 -17 0.000003 0 -0.000003 -17 0 0 0 17 t04i1765.dat
+1 16 0 -5 0 -17 0 0 0 -17 0 0 0 17 t04o1765.dat
+1 16 0 -5 0 -0.000001 -0.000001 17 -0 -17 -0.000001 17 -0 0.000001 t04i1765.dat
+1 16 0 -5 0 0 0 17 0 -17 0 17 0 0 t04o1765.dat
+1 16 0 0 0 1 0 0 0 1 0 -0 0 1 s\30663s01.dat

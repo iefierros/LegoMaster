@@ -32,3 +32,6 @@ dist-ssr
 
 # Supabase
 .supabase
+
+# Pmpm store
+.pnpm-store
