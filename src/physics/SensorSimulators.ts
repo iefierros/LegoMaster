@@ -96,16 +96,18 @@ export class UltrasonicSensor extends BaseSensorSimulator {
  * Samples pixels from the mat texture to detect color
  */
 export class ColorSensor extends BaseSensorSimulator {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  private canvas?: HTMLCanvasElement;
+  private ctx?: CanvasRenderingContext2D | null;
   private matTexture: THREE.Texture | null = null;
   private matDimensions: { width: number; height: number } = { width: 2.4, height: 1.2 };
 
   constructor(id: string, port: string, config: SensorConfig) {
     super(id, 'color', port, config);
 
-    this.canvas = document.createElement('canvas');
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
+    if (typeof document !== 'undefined' && document.createElement) {
+        this.canvas = document.createElement('canvas');
+        this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+    }
   }
 
   /**
@@ -116,7 +118,7 @@ export class ColorSensor extends BaseSensorSimulator {
     this.matDimensions = dimensions;
 
     // Draw texture to canvas for pixel sampling
-    if (texture.image) {
+    if (this.canvas && this.ctx && texture.image) {
       this.canvas.width = texture.image.width || 1024;
       this.canvas.height = texture.image.height || 512;
       this.ctx.drawImage(texture.image, 0, 0);
@@ -124,7 +126,7 @@ export class ColorSensor extends BaseSensorSimulator {
   }
 
   update(scene: THREE.Scene, robotBody: CANNON.Body): ColorSensorReading {
-    if (!this.matTexture) {
+    if (!this.matTexture || !this.canvas || !this.ctx) {
       return this.getDefaultReading();
     }
 
@@ -156,7 +158,7 @@ export class ColorSensor extends BaseSensorSimulator {
     };
 
     // Classify color and calculate reflectance
-    const colorName = this.classifyColor(rgb);
+    const colorName = ColorSensor.classifyColor(rgb);
     const reflectance = this.calculateReflectance(rgb);
 
     this.lastReading = {
@@ -184,8 +186,9 @@ export class ColorSensor extends BaseSensorSimulator {
 
   /**
    * Classify RGB values into color names
+   * @note Made public for unit testing
    */
-  private classifyColor(rgb: { r: number; g: number; b: number }): string {
+  public static classifyColor(rgb: { r: number; g: number; b: number }): string {
     const { r, g, b } = rgb;
     const brightness = (r + g + b) / 3;
 
@@ -203,17 +206,26 @@ export class ColorSensor extends BaseSensorSimulator {
       return brightness > 150 ? 'white' : 'gray';
     }
 
-    // Determine dominant color
+    // Calculate red dominance for purple/magenta detection
+    const rDominance = r - Math.max(g, b);
+
+    // Determine dominant color - require clear dominance
     if (r > g && r > b && r > 100) {
+      // Red must be significantly higher than blue to avoid purple/magenta
+      if (b > 100 && rDominance < 30) {
+        // Purple/magenta area - not a standard FLL color
+        return 'unknown';
+      }
       // Check if it's red or orange/yellow
       if (g > 100 && g > b * 1.5) return 'yellow';
-      if (g > 50 && g < 150) return 'orange';
+      if (g > 50 && g < 150 && b < 80) return 'orange';
       return 'red';
     }
 
     if (g > r && g > b && g > 100) {
-      // Green or yellow
-      if (r > 100) return 'yellow';
+      // Green or yellow - yellow requires red to be close to green
+      // If green is significantly dominant, it's green not yellow
+      if (r > 100 && r > g * 0.7) return 'yellow';
       return 'green';
     }
 

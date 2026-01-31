@@ -1,16 +1,18 @@
 import * as CANNON from 'cannon-es';
+import * as THREE from 'three';
 import type { VirtualMotorController, MotorJoint } from '@/types';
 import { PIDController } from './PIDController';
 
 /**
  * Virtual SPIKE Prime/EV3 Motor with realistic physics
- * Simulates the behavior of actual LEGO motors with torque, speed limits, and PID control
+ * Applies forces directly to the robot chassis based on wheel position
  */
 export class VirtualSpikeMotor implements VirtualMotorController {
   // Motor specifications (SPIKE Large Motor as reference)
   public readonly maxRPM: number = 175;
   public readonly stallTorque: number = 0.25; // Newton-meters
   private readonly maxAngularVelocity: number; // rad/s
+  private readonly wheelRadius: number = 0.028; // 28mm wheel radius
 
   // State
   public currentVelocity: number = 0;
@@ -24,14 +26,15 @@ export class VirtualSpikeMotor implements VirtualMotorController {
   private positionMode: boolean = false;
 
   // Physics references
-  private hingeConstraint: CANNON.HingeConstraint | null = null;
-  private bodyA: CANNON.Body; // Chassis
-  private bodyB: CANNON.Body; // Wheel axle or motor shaft
+  private chassisBody: CANNON.Body | null = null;
+  private wheelPosition: THREE.Vector3;
+  private motorSide: 'left' | 'right'; // Which side of the robot
+  private robotMass: number = 0.5; // kg, updated on initialize
+  private motorCount: number = 2; // number of drive motors
 
   constructor(
     public readonly port: string,
     private joint: MotorJoint,
-    private physicsWorld: CANNON.World,
     motorType: 'spike-large' | 'spike-medium' | 'ev3-large' | 'ev3-medium' = 'spike-large'
   ) {
     // Set motor specifications based on type
@@ -55,52 +58,25 @@ export class VirtualSpikeMotor implements VirtualMotorController {
     }
 
     this.maxAngularVelocity = this.maxRPM * (2 * Math.PI / 60); // Convert RPM to rad/s
-    this.pidController = new PIDController(0.8, 0.15, 0.08);
+    this.pidController = new PIDController(1.2, 0.2, 0.1);
 
-    // Create physics bodies (will be initialized later with actual robot body)
-    this.bodyA = new CANNON.Body({ mass: 0 }); // Placeholder
-    this.bodyB = new CANNON.Body({ mass: 0.05 }); // Wheel/shaft
+    // Store wheel position
+    this.wheelPosition = joint.axlePosition.clone();
+
+    // Determine if this is a left or right motor based on X position
+    this.motorSide = joint.axlePosition.x < 0 ? 'left' : 'right';
   }
 
   /**
-   * Initialize motor with physics bodies
+   * Initialize motor with chassis body
+   * @param chassisBody - The physics body to apply forces to
+   * @param robotMass - Total robot mass in kg (for force limiting)
+   * @param motorCount - Number of drive motors (for force distribution)
    */
-  initialize(chassisBody: CANNON.Body): void {
-    this.bodyA = chassisBody;
-
-    // Create wheel axle body
-    const wheelShape = new CANNON.Cylinder(0.028, 0.028, 0.012, 16);
-    this.bodyB = new CANNON.Body({
-      mass: 0.015, // 15 grams per wheel
-      position: new CANNON.Vec3(
-        this.joint.axlePosition.x,
-        this.joint.axlePosition.y,
-        this.joint.axlePosition.z
-      )
-    });
-    this.bodyB.addShape(wheelShape);
-    this.physicsWorld.addBody(this.bodyB);
-
-    // Create hinge constraint (rotational joint)
-    const axisA = new CANNON.Vec3(
-      this.joint.axleDirection.x,
-      this.joint.axleDirection.y,
-      this.joint.axleDirection.z
-    );
-
-    this.hingeConstraint = new CANNON.HingeConstraint(this.bodyA, this.bodyB, {
-      pivotA: new CANNON.Vec3(
-        this.joint.axlePosition.x,
-        this.joint.axlePosition.y,
-        this.joint.axlePosition.z
-      ),
-      axisA: axisA,
-      pivotB: new CANNON.Vec3(0, 0, 0),
-      axisB: new CANNON.Vec3(1, 0, 0),
-      maxForce: this.stallTorque
-    });
-
-    this.physicsWorld.addConstraint(this.hingeConstraint);
+  initialize(chassisBody: CANNON.Body, robotMass?: number, motorCount?: number): void {
+    this.chassisBody = chassisBody;
+    if (robotMass !== undefined) this.robotMass = robotMass;
+    if (motorCount !== undefined) this.motorCount = motorCount;
   }
 
   /**
@@ -159,10 +135,6 @@ export class VirtualSpikeMotor implements VirtualMotorController {
     this.isRunning = false;
     this.positionMode = false;
     this.pidController.reset();
-
-    if (this.hingeConstraint) {
-      this.hingeConstraint.disableMotor();
-    }
   }
 
   /**
@@ -176,45 +148,100 @@ export class VirtualSpikeMotor implements VirtualMotorController {
 
   /**
    * Update motor physics (called every frame)
+   * Directly modifies chassis velocity based on wheel rotation
+   * Uses differential drive model for tank-style steering
    */
   update(deltaTime: number): void {
-    if (!this.hingeConstraint || !this.isRunning) return;
+    if (!this.chassisBody || deltaTime <= 0) {
+      return;
+    }
 
-    // Get current angular velocity from physics
-    const angularVel = this.bodyB.angularVelocity;
-    this.currentVelocity = angularVel.x; // Assuming rotation around X axis
+    // Update motor velocity even when not running (for coasting)
+    if (!this.isRunning) {
+      // Coast to stop
+      this.currentVelocity *= 0.95;
+      if (Math.abs(this.currentVelocity) < 0.01) {
+        this.currentVelocity = 0;
+      }
+    } else {
+      // Position mode: check if target reached
+      if (this.positionMode && this.targetAngle !== null) {
+        const error = this.targetAngle - this.currentAngle;
+
+        // Slow down as we approach target
+        if (Math.abs(error) < 0.5) { // ~30 degrees
+          const slowdownFactor = Math.abs(error) / 0.5;
+          this.targetVelocity = this.targetVelocity * slowdownFactor;
+        }
+
+        // Stop if reached
+        if (Math.abs(error) < 0.05) {
+          this.stop();
+          return;
+        }
+      }
+
+      // Calculate PID control for smooth acceleration
+      const velocityError = this.targetVelocity - this.currentVelocity;
+      const controlOutput = this.pidController.calculate(velocityError, deltaTime);
+
+      // Update velocity with acceleration limits
+      const maxAcceleration = 30.0; // rad/s^2 - increased for responsiveness
+      const velocityChange = Math.max(-maxAcceleration * deltaTime,
+                                     Math.min(maxAcceleration * deltaTime, controlOutput));
+      this.currentVelocity += velocityChange;
+
+      // Clamp to max velocity
+      this.currentVelocity = Math.max(-this.maxAngularVelocity,
+                                     Math.min(this.maxAngularVelocity, this.currentVelocity));
+    }
 
     // Update current angle
     this.currentAngle += this.currentVelocity * deltaTime;
 
-    // Position mode: check if target reached
-    if (this.positionMode && this.targetAngle !== null) {
-      const error = this.targetAngle - this.currentAngle;
+    // Calculate wheel linear velocity: v = ω × r
+    const wheelLinearVelocity = this.currentVelocity * this.wheelRadius;
 
-      // Slow down as we approach target
-      if (Math.abs(error) < 0.5) { // ~30 degrees
-        const slowdownFactor = Math.abs(error) / 0.5;
-        this.targetVelocity = this.targetVelocity * slowdownFactor;
-      }
+    // Get robot's current orientation
+    const robotQuat = this.chassisBody.quaternion;
 
-      // Stop if reached
-      if (Math.abs(error) < 0.05) {
-        this.stop();
-        return;
-      }
-    }
+    // Forward direction in world space (robot's forward is -Z in local space)
+    const forwardDir = new CANNON.Vec3(0, 0, -1);
+    robotQuat.vmult(forwardDir, forwardDir);
 
-    // Calculate PID control
-    const velocityError = this.targetVelocity - this.currentVelocity;
-    const controlOutput = this.pidController.calculate(velocityError, deltaTime);
+    // Apply velocity contribution from this wheel
+    // For differential drive: each wheel contributes to both linear and angular motion
+    const wheelbaseWidth = 0.16; // Distance between wheels (2 * 0.08)
 
-    // Apply torque (limited by stall torque)
-    const torque = Math.max(-this.stallTorque, Math.min(this.stallTorque, controlOutput));
+    // Force-based dynamics: F = stallTorque / wheelRadius, limited by mass
+    // maxAccel = (StallTorque / WheelRadius) / (TotalMass / NumberOfMotors)
+    const maxForcePerMotor = this.stallTorque / this.wheelRadius;
+    const maxAccel = maxForcePerMotor / (this.robotMass / this.motorCount);
 
-    // Enable motor and set parameters
-    this.hingeConstraint.enableMotor();
-    this.hingeConstraint.setMotorSpeed(this.targetVelocity);
-    this.hingeConstraint.setMotorMaxForce(Math.abs(torque) * 100); // Scale for Cannon.js
+    // Linear velocity contribution (both wheels push forward)
+    const targetLinearVel = wheelLinearVelocity * 0.5;
+
+    // Compute acceleration needed, clamped by max achievable
+    const currentForwardVel = forwardDir.x * this.chassisBody.velocity.x +
+                              forwardDir.z * this.chassisBody.velocity.z;
+    const linearError = targetLinearVel - currentForwardVel * 0.5;
+    const linearAccel = Math.max(-maxAccel, Math.min(maxAccel, linearError / deltaTime));
+    const clampedLinearDv = linearAccel * deltaTime;
+
+    // Angular velocity contribution (wheels on opposite sides create rotation)
+    const angularContribution = wheelLinearVelocity / wheelbaseWidth;
+    const angularSign = this.motorSide === 'left' ? 1 : -1;
+    const maxAngularAccel = maxAccel / (wheelbaseWidth * 0.5);
+    const angularDv = Math.max(-maxAngularAccel * deltaTime,
+                      Math.min(maxAngularAccel * deltaTime,
+                               angularSign * angularContribution * deltaTime));
+
+    // Apply to chassis velocity
+    this.chassisBody.velocity.x += forwardDir.x * clampedLinearDv;
+    this.chassisBody.velocity.z += forwardDir.z * clampedLinearDv;
+
+    // Apply angular velocity (rotation around Y axis)
+    this.chassisBody.angularVelocity.y += angularDv;
   }
 
   /**
@@ -241,7 +268,8 @@ export class VirtualSpikeMotor implements VirtualMotorController {
       speed: this.getSpeed(),
       targetSpeed: (this.targetVelocity * 60) / (2 * Math.PI),
       isRunning: this.isRunning,
-      positionMode: this.positionMode
+      positionMode: this.positionMode,
+      motorSide: this.motorSide
     };
   }
 }
